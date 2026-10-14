@@ -108,3 +108,9 @@ warning: accepting any platform token (insecure authentication)
 /listening on [\d.:]+ and [\d.:]+, testing bandwidth on [\d.:]+/
 shutting down
 EOE
+
+: quiet
+: Test that the quiet startup prints the errors only
+:
+env --timeout $timeout --timeout-success -- \
+  $* $tls $local -q --insecure-authentication

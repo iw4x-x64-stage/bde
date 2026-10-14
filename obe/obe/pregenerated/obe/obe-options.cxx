@@ -925,12 +925,9 @@ namespace obe
     os << std::endl
        << "\033[1m--verbose\033[0m \033[4mlevel\033[0m                 Set the diagnostics verbosity to \033[4mlevel\033[0m between" << ::std::endl
        << "                                0 and 3. Level 0 prints errors only, level 1" << ::std::endl
-       << "                                (the default) also warnings, level 2 also" << ::std::endl
-       << "                                informational messages, and level 3 also trace" << ::std::endl
-       << "                                messages. Note that the diagnostics of the" << ::std::endl
-       << "                                servers themselves (for example, the failed" << ::std::endl
-       << "                                gateway tasks) are currently printed regardless" << ::std::endl
-       << "                                of the verbosity." << ::std::endl;
+       << "                                (the default) also warnings and the connected" << ::std::endl
+       << "                                users, level 2 also informational messages, and" << ::std::endl
+       << "                                level 3 also trace messages." << ::std::endl;
 
     os << std::endl
        << "\033[1m--auth-address\033[0m \033[4maddr\033[0m             Listen for the authentication requests on \033[4maddr\033[0m." << ::std::endl

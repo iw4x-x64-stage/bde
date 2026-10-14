@@ -552,12 +552,13 @@ $ journalctl -u obe -f
 \
 
 The \c{--verbose} option sets the verbosity from 0 to 3. Level 0 prints the
-errors, and each next level adds a kind of message: warnings at 1 (the
-default), informational messages at 2, and trace messages at 3. The \c{-q},
-\c{-v}, and \c{-V} options are the shortcuts for levels 0, 2, and 3.
+errors, and each next level adds a kind of message: warnings and the
+connected users at 1 (the default), informational messages at 2, and trace
+messages at 3. The \c{-q}, \c{-v}, and \c{-V} options are the shortcuts for
+levels 0, 2, and 3.
 
-The gateway prints its own diagnostics at any verbosity. Each line starts with
-the client's endpoint and the most common ones look like this:
+The servers start each line of their diagnostics with the client's endpoint.
+The most common ones look like this:
 
 \
 192.0.2.10:52144: info: user 1234 connected as 1

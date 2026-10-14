@@ -67,10 +67,9 @@ namespace obe
     {
       "<level>",
       "Set the diagnostics verbosity to <level> between 0 and 3. Level 0
-       prints errors only, level 1 (the default) also warnings, level 2 also
-       informational messages, and level 3 also trace messages. Note that
-       the diagnostics of the servers themselves (for example, the failed
-       gateway tasks) are currently printed regardless of the verbosity."
+       prints errors only, level 1 (the default) also warnings and the
+       connected users, level 2 also informational messages, and level 3
+       also trace messages."
     }
 
     std::string --auth-address = "0.0.0.0"

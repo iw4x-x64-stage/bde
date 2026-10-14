@@ -30,6 +30,7 @@
 
 #include <libobe/version.hxx>
 #include <libobe/endpoint.hxx>
+#include <libobe/diagnostics.hxx>
 #include <libobe/pgsql.hxx>
 #include <libobe/ticket.hxx>
 #include <libobe/service.hxx>
@@ -153,10 +154,6 @@ namespace obe
     using io_context::shutdown;
   };
 
-  // The diagnostics verbosity (see --verbose).
-  //
-  static uint16_t verb (1);
-
   // Return the address. Issue diagnostics and throw failed if it is
   // invalid.
   //
@@ -168,7 +165,7 @@ namespace obe
 
     if (ec)
     {
-      println (cerr, "error: invalid {} address '{}'", what, a);
+      LOG_ERROR (logger (), "error: invalid {} address '{}'", what, a);
       throw failed ();
     }
 
@@ -189,7 +186,9 @@ namespace obe
       }
       catch (const system_error& e)
       {
-        println (cerr, "error: unable to generate ticket key: {}", e.what ());
+        LOG_ERROR (logger (),
+                   "error: unable to generate ticket key: {}",
+                   e.what ());
         throw failed ();
       }
     }
@@ -199,7 +198,7 @@ namespace obe
     ifstream is (f, ios::binary);
     if (!is)
     {
-      println (cerr, "error: unable to open ticket key file {}", f);
+      LOG_ERROR (logger (), "error: unable to open ticket key file {}", f);
       throw failed ();
     }
 
@@ -210,10 +209,10 @@ namespace obe
     if (is.gcount () != static_cast<streamsize> (r.size ()) ||
         is.peek () != ifstream::traits_type::eof ())
     {
-      println (cerr,
-               "error: invalid ticket key file {}\n"
-               "  info: ticket key must be exactly {} bytes",
-               f, r.size ());
+      LOG_ERROR (logger (),
+                 "error: invalid ticket key file {}\n"
+                 "  info: ticket key must be exactly {} bytes",
+                 f, r.size ());
       throw failed ();
     }
 
@@ -268,10 +267,10 @@ namespace obe
 
         if (!is_directory (td) || fr.ec != errc () || fr.ptr != e)
         {
-          println (cerr,
-                   "error: invalid publisher files title directory {}\n"
-                   "  info: name it after the title id, for example, 2010",
-                   td.string ());
+          LOG_ERROR (logger (),
+                     "error: invalid publisher files title directory {}\n"
+                     "  info: name it after the title id, for example, 2010",
+                     td.string ());
           throw failed ();
         }
 
@@ -283,27 +282,27 @@ namespace obe
 
           if (!is_regular_file (f))
           {
-            println (cerr,
-                     "error: publisher file {} is not a regular file",
-                     f.string ());
+            LOG_ERROR (logger (),
+                       "error: publisher file {} is not a regular file",
+                       f.string ());
             throw failed ();
           }
 
           if (n.size () > file_header::max_name)
           {
-            println (cerr,
-                     "error: publisher file name {} is longer than {} "
-                     "characters",
-                     n, file_header::max_name);
+            LOG_ERROR (logger (),
+                       "error: publisher file name {} is longer than {} "
+                       "characters",
+                       n, file_header::max_name);
             throw failed ();
           }
 
           ifstream is (f, ios::binary);
           if (!is)
           {
-            println (cerr,
-                     "error: unable to open publisher file {}",
-                     f.string ());
+            LOG_ERROR (logger (),
+                       "error: unable to open publisher file {}",
+                       f.string ());
             throw failed ();
           }
 
@@ -312,9 +311,9 @@ namespace obe
 
           if (is.bad ())
           {
-            println (cerr,
-                     "error: unable to read publisher file {}",
-                     f.string ());
+            LOG_ERROR (logger (),
+                       "error: unable to read publisher file {}",
+                       f.string ());
             throw failed ();
           }
 
@@ -324,9 +323,9 @@ namespace obe
     }
     catch (const filesystem_error& e)
     {
-      println (cerr,
-               "error: unable to read publisher files directory {}: {}",
-               e.path1 ().string (), e.code ().message ());
+      LOG_ERROR (logger (),
+                 "error: unable to read publisher files directory {}: {}",
+                 e.path1 ().string (), e.code ().message ());
       throw failed ();
     }
 
@@ -372,17 +371,17 @@ namespace obe
     //
     if (o.verbose () > 3)
     {
-      println (cerr,
-               "error: invalid --verbose value {}\n"
-               "  info: specify a level between 0 and 3",
-               o.verbose ());
+      LOG_ERROR (logger (),
+                 "error: invalid --verbose value {}\n"
+                 "  info: specify a level between 0 and 3",
+                 o.verbose ());
       throw failed ();
     }
 
-    verb = o.quiet () ? 0 :
-           o.V ()     ? 3 :
-           o.v ()     ? 2 :
-           o.verbose ();
+    set_verbosity (o.quiet () ? 0 :
+                   o.V ()     ? 3 :
+                   o.v ()     ? 2 :
+                   o.verbose ());
 
     // Open the database, if any.
     //
@@ -391,9 +390,9 @@ namespace obe
     //
     if (o.migrate () && !o.db_name_specified ())
     {
-      println (cerr,
-               "error: no database to migrate\n"
-               "  info: specify it with --db-name");
+      LOG_ERROR (logger (),
+                 "error: no database to migrate\n"
+                 "  info: specify it with --db-name");
       throw failed ();
     }
 
@@ -402,7 +401,7 @@ namespace obe
     {
       if (o.db_max_connections () == 0)
       {
-        println (cerr, "error: invalid --db-max-connections value 0");
+        LOG_ERROR (logger (), "error: invalid --db-max-connections value 0");
         throw failed ();
       }
 
@@ -436,23 +435,21 @@ namespace obe
         }
         catch (const database_error& e)
         {
-          println (cerr, "error: unable to migrate database {}: {}",
-                   n, e.what ());
+          LOG_ERROR (logger (), "error: unable to migrate database {}: {}",
+                     n, e.what ());
           throw failed ();
         }
 
-        if (verb >= 2)
-        {
-          if (v == 0)
-            println (cerr, "created database {} schema version {}", n, cv);
-          else if (v != cv)
-            println (cerr,
-                     "migrated database {} schema from version {} to {}",
-                     n, v, cv);
-          else
-            println (cerr, "database {} schema version {} is current",
-                     n, cv);
-        }
+        if (v == 0)
+          LOG_INFO (logger (), "created database {} schema version {}", n, cv);
+        else if (v != cv)
+          LOG_INFO (logger (),
+                    "migrated database {} schema from version {} to {}",
+                    n, v, cv);
+        else
+          LOG_INFO (logger (),
+                    "database {} schema version {} is current",
+                    n, cv);
 
         return 0;
       }
@@ -464,21 +461,24 @@ namespace obe
       }
       catch (const database_error& e)
       {
-        println (cerr, "error: unable to access database {}: {}",
-                 n, e.what ());
+        LOG_ERROR (logger (), "error: unable to access database {}: {}",
+                   n, e.what ());
         throw failed ();
       }
 
       if (v != cv)
       {
         if (v == 0)
-          println (cerr, "error: database {} has no schema", n);
+          LOG_ERROR (logger (),
+                     "error: database {} has no schema\n"
+                     "  info: run 'obe --migrate' to create or migrate it",
+                     n);
         else
-          println (cerr,
-                   "error: database {} schema version {} instead of {}",
-                   n, v, cv);
+          LOG_ERROR (logger (),
+                     "error: database {} schema version {} instead of {}\n"
+                     "  info: run 'obe --migrate' to create or migrate it",
+                     n, v, cv);
 
-        println (cerr, "  info: run 'obe --migrate' to create or migrate it");
         throw failed ();
       }
     }
@@ -487,9 +487,9 @@ namespace obe
     //
     if (!o.tls_certificate_specified () || !o.tls_key_specified ())
     {
-      println (cerr,
-               "error: TLS certificate and key are required\n"
-               "  info: specify them with --tls-certificate and --tls-key");
+      LOG_ERROR (logger (),
+                 "error: TLS certificate and key are required\n"
+                 "  info: specify them with --tls-certificate and --tls-key");
       throw failed ();
     }
 
@@ -521,10 +521,10 @@ namespace obe
 
       if (!pa.is_v4 () || pa.is_unspecified ())
       {
-        println (cerr,
-                 "error: invalid bandwidth test public address '{}'\n"
-                 "  info: specify the IPv4 address the clients can reach",
-                 a);
+        LOG_ERROR (logger (),
+                   "error: invalid bandwidth test public address '{}'\n"
+                   "  info: specify the IPv4 address the clients can reach",
+                   a);
         throw failed ();
       }
 
@@ -544,16 +544,16 @@ namespace obe
       tls.use_certificate_chain_file (o.tls_certificate (), ec);
       if (ec)
       {
-        println (cerr, "error: unable to load TLS certificate {}: {}",
-                 o.tls_certificate (), ec.message ());
+        LOG_ERROR (logger (), "error: unable to load TLS certificate {}: {}",
+                   o.tls_certificate (), ec.message ());
         throw failed ();
       }
 
       tls.use_private_key_file (o.tls_key (), asio::ssl::context::pem, ec);
       if (ec)
       {
-        println (cerr, "error: unable to load TLS key {}: {}",
-                 o.tls_key (), ec.message ());
+        LOG_ERROR (logger (), "error: unable to load TLS key {}: {}",
+                   o.tls_key (), ec.message ());
         throw failed ();
       }
     }
@@ -597,8 +597,7 @@ namespace obe
       values = make_unique<memory_performance_store> ();
     }
 
-    if (verb >= 3)
-      println (cerr,
+    LOG_DEBUG (logger (),
                "keeping files and performance values in {}",
                db != nullptr ? format ("database {}", o.db_name ())
                              : string ("memory"));
@@ -624,8 +623,7 @@ namespace obe
           const file_header h (
             co_await publish (*files, f.title, f.name, f.data, now));
 
-          if (verb >= 3)
-            println (cerr,
+          LOG_DEBUG (logger (),
                      "published file {} ({} bytes) of title {} as {}",
                      f.name,
                      f.data.size (),
@@ -654,13 +652,14 @@ namespace obe
         }
         catch (const std::exception& e)
         {
-          println (cerr, "error: unable to publish files: {}", e.what ());
+          LOG_ERROR (logger (),
+                     "error: unable to publish files: {}",
+                     e.what ());
           throw failed ();
         }
       }
 
-      if (verb >= 2)
-        println (cerr, "published {} publisher file(s)", pfs.size ());
+      LOG_INFO (logger (), "published {} publisher file(s)", pfs.size ());
     }
 
     // Create the gateway services.
@@ -674,8 +673,9 @@ namespace obe
     }
     catch (const boost::system::system_error& e)
     {
-      println (cerr, "error: unable to bind bandwidth test socket to {}: {}",
-               be, e.code ().message ());
+      LOG_ERROR (logger (),
+                 "error: unable to bind bandwidth test socket to {}: {}",
+                 format ("{}", be), e.code ().message ());
       throw failed ();
     }
 
@@ -699,8 +699,9 @@ namespace obe
     auto listen_failed = [] (const tcp::endpoint& ep,
                              const boost::system::system_error& e)
     {
-      println (cerr, "error: unable to listen on {}: {}",
-               ep, e.code ().message ());
+      LOG_ERROR (logger (),
+                 "error: unable to listen on {}: {}",
+                 format ("{}", ep), e.code ().message ());
       return failed ();
     };
 
@@ -729,17 +730,16 @@ namespace obe
       throw listen_failed (ge, e);
     }
 
-    if (o.insecure_authentication () && verb >= 1)
-      println (cerr,
-               "warning: accepting any platform token (insecure "
-               "authentication)");
+    if (o.insecure_authentication ())
+      LOG_WARNING (logger (),
+                   "warning: accepting any platform token (insecure "
+                   "authentication)");
 
-    if (verb >= 2)
-      println (cerr,
-               "listening on {} and {}, testing bandwidth on {}",
-               a->endpoint (),
-               g->endpoint (),
-               bandwidth->endpoint ());
+    LOG_INFO (logger (),
+              "listening on {} and {}, testing bandwidth on {}",
+              format ("{}", a->endpoint ()),
+              format ("{}", g->endpoint ()),
+              format ("{}", bandwidth->endpoint ()));
 
     // Flush so that whoever reads the endpoints gets them right away.
     //
@@ -772,7 +772,9 @@ namespace obe
           }
           catch (const std::exception& x)
           {
-            println (cerr, "error: {} server failed: {}", what, x.what ());
+            LOG_ERROR (logger (),
+                       "error: {} server failed: {}",
+                       what, x.what ());
           }
 
           r = 1;
@@ -790,8 +792,7 @@ namespace obe
         if (ec)
           return;
 
-        if (verb >= 2)
-          println (cerr, "shutting down");
+        LOG_INFO (logger (), "shutting down");
 
         ctx.stop ();
       });
@@ -823,10 +824,10 @@ namespace obe
     ostringstream os;
     os << e;
 
-    println (cerr,
-             "error: {}\n"
-             "  info: run 'obe --help' for more information",
-             os.str ());
+    LOG_ERROR (logger (),
+               "error: {}\n"
+               "  info: run 'obe --help' for more information",
+               os.str ());
     return 1;
   }
 }
