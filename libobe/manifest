@@ -23,5 +23,6 @@ depends: libboost-beast ^1.91.0
 depends: libssl ^3.3.1
 depends: libodb ~2.6.0
 depends: libodb-pgsql ~2.6.0
+depends: libquill ^13.0.0
 depends: * odb ~2.6.0 ? ($config.libobe.develop)
 builds: default

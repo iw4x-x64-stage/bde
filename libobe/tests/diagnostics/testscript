@@ -1,0 +1,66 @@
+# Copyright (c) the IW4x authors (see the AUTHORS file).
+# SPDX-License-Identifier: GPL-3.0-only WITH AdditionRef-IW4x-Exception-1.1
+
+# Log a record at every level, each message naming its level.
+#
++cat <<EOI >=input
+error error: e
+warning warning: w
+notice n
+info i
+debug d
+trace-l1 t1
+trace-l2 t2
+trace-l3 t3
+EOI
+
+: default
+: Test that the default verbosity writes warnings and high-level information
+:
+$* <=../input 2>>EOE
+error: e
+warning: w
+n
+EOE
+
+: verbosity
+: Test the levels written at each verbosity
+:
+{{
+  $* 0 <=../../input 2>>EOE : quiet
+  error: e
+  EOE
+
+  $* 2 <=../../input 2>>EOE : progress
+  error: e
+  warning: w
+  n
+  i
+  EOE
+
+  $* 3 <=../../input 2>>EOE : detail
+  error: e
+  warning: w
+  n
+  i
+  d
+  EOE
+
+  $* 6 <=../../input 2>>EOE : trace
+  error: e
+  warning: w
+  n
+  i
+  d
+  t1
+  t2
+  t3
+  EOE
+}}
+
+: endpoint-prefix
+: Test that the message is written as is, without quill's metadata
+:
+$* <'warning 127.0.0.1:5000: warning: request too large' 2>>EOE
+127.0.0.1:5000: warning: request too large
+EOE
