@@ -1,6 +1,6 @@
-# Contributing to obe
+# Contributing to bde
 
-This guide describes how to contribute to `obe`, from finding
+This guide describes how to contribute to `bde`, from finding
 something to work on to getting a pull request merged.
 
 ## Getting started
@@ -16,41 +16,41 @@ is written. For questions that are not about a specific change, ask on
 
 ## Development
 
-`obe` is built with [build2](https://build2.org). The Development
+`bde` is built with [build2](https://build2.org). The Development
 section of [README.md](../README.md) lists the requirements and the commands
 to set up a build configuration. If you are new to build2, the
 [build2 toolchain introduction](https://build2.org/build2-toolchain/doc/build2-toolchain-intro.xhtml)
 explains the workflow.
 
-The repository holds two packages: `libobe`, the Demonware services
-library, and `obe`, the server executable. The library sources are in
-`libobe/libobe/` and their tests in `libobe/tests/`, while the executable's
-tests are in the testscript next to its sources in `obe/obe/`. The `obe`
-manual is in `obe/doc/manual.cli`.
+The repository holds two packages: `libbde`, the Demonware services
+library, and `bde`, the server executable. The library sources are in
+`libbde/libbde/` and their tests in `libbde/tests/`, while the executable's
+tests are in the testscript next to its sources in `bde/bde/`. The `bde`
+manual is in `bde/doc/manual.cli`.
 
-Some code is generated: the database support from `libobe/libobe/model.hxx`
+Some code is generated: the database support from `libbde/libbde/model.hxx`
 by [ODB](https://codesynthesis.com/products/odb/) and the command line
-parser from `obe/obe/obe.cli` by
+parser from `bde/bde/bde.cli` by
 [CLI](https://codesynthesis.com/projects/cli/). The generated code is
 committed under `pregenerated/` so that the packages build without these
 tools. The configurations that `bdep` initializes are development builds
-(`config.libobe.develop` and `config.obe.develop` are true), which
+(`config.libbde.develop` and `config.bde.develop` are true), which
 regenerate it, so a change to either file is committed together with the
 regenerated code. A change to the database model also updates the schema
-changelog, `libobe/libobe/model.xml`, which is committed too. The
+changelog, `libbde/libbde/model.xml`, which is committed too. The
 development build also generates the manual from `manual.cli`, and only
 the distribution carries the generated manual.
 
 The PostgreSQL tests run only if the configuration names a maintenance
-database with `config.libobe.test.pgsql`, for example:
+database with `config.libbde.test.pgsql`, for example:
 
 ```
-bdep test '!config.libobe.test.pgsql=postgres'
+bdep test '!config.libbde.test.pgsql=postgres'
 ```
 
 The tests create their own databases, so the role they run as needs to be
 allowed to create databases.
-`obe/etc/private/postgresql/obe-postgresql-setup --test-role <user>` sets
+`bde/etc/private/postgresql/bde-postgresql-setup --test-role <user>` sets
 up a local server this way.
 
 Work on a branch of your fork of the repository and keep it up to date with
@@ -131,7 +131,7 @@ is merged.
 
 ## Licensing
 
-By contributing to `obe`, you agree that your contribution is
+By contributing to `bde`, you agree that your contribution is
 licensed under its license, the GNU General Public License, version 3, with
 the additional permissions of version 1.1 of the IW4x Linking Exception (see
 `LICENSE.md` and `LICENSE-EXCEPTION.md`).

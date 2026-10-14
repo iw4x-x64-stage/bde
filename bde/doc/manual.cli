@@ -1,0 +1,813 @@
+// Copyright (c) the IW4x authors (see the AUTHORS file).
+// SPDX-License-Identifier: GPL-3.0-only WITH AdditionRef-IW4x-Exception-1.1
+
+"\name=bde-manual"
+"\title=Manual"
+
+// NOTES
+//
+// - Maximum <pre> line is 70 characters.
+//
+
+"
+\h0#preface|Preface|
+
+This document describes how to deploy \c{bde}, IW4x Demonware emulator,
+and how to keep a deployment running across \c{bde} upgrades. For the
+command line interface run \c{bde\ --help}.
+
+\h1#intro|Introduction|
+
+The game connects to Demonware services at three endpoints and \c{bde}
+serves all of them from a single process:
+
+\dl|
+
+\li|\b{TCP port 443}
+
+The authentication server. The client sends its platform token over HTTPS
+and, once \c{bde} verifies it, receives a ticket for the lobby service
+gateway.|
+
+\li|\b{TCP port 3074}
+
+The lobby service gateway. The client connects with its ticket and keeps the
+connection for the whole session. All the services the game uses during play
+are behind the gateway.|
+
+\li|\b{UDP port 3075}
+
+The bandwidth test. Right after connecting to the gateway the client sends a
+burst of packets to this port, and \c{bde} reports the measured upload rate
+back to it. The client uses the rate to decide whether it may host a
+lobby.||
+
+The ports are the defaults and the options that change them are listed in
+\c{bde\ --help}.
+
+The state that has to survive a restart is the files the clients store (their
+settings, for example) and the performance values they report. \c{bde} keeps
+it in a PostgreSQL database. Without a database \c{bde} keeps it in memory,
+which is only suitable for development.
+
+The rest of the state lives in memory. The matchmaking sessions and the
+bandwidth tests belong to the gateway connections and end with them. The user
+names that the messaging service shows to the recipients are learned when the
+users authenticate, so after a restart a user that reconnects with an earlier
+ticket has no name until the next authentication.
+
+\N|Since this state is per process, the clients of one \c{bde} process cannot
+see the matchmaking sessions hosted on another. A deployment that serves one
+community of players is therefore a single process.|
+
+The examples in this document assume a Fedora or Debian-based Linux system
+with \c{systemd}, and use the following locations:
+
+\
+/opt/bde/                       installation
+/etc/bde/bde.options            options file
+/etc/bde/tls/cert.pem           TLS certificate
+/etc/bde/tls/key.pem            TLS private key
+/etc/bde/ticket.key             ticket sealing key
+/var/lib/bde/                   home of the bde user
+\
+
+You can use other locations, as long as you adjust the commands accordingly.
+
+\h1#install|Installation|
+
+Before we begin, make sure the following is available on the host:
+
+\ul|
+
+\li|GCC 16 or later, since \c{bde} is written in C++26.|
+
+\li|The \c{build2} toolchain 0.18.0 or later (see the
+\l{https://build2.org/install.xhtml Installation Instructions}).|
+
+\li|An account with \c{sudo} access.||
+
+The remaining dependencies are \c{build2} packages and are built from source
+along with \c{bde}.
+
+We also need a copy of the \c{bde} repository for its setup script:
+
+\
+$ git clone https://github.com/iw4x-x64-stage/bde.git
+\
+
+\dl|
+
+\li|\b{1. Set Up PostgreSQL}\n
+
+The \c{bde/etc/private/postgresql/bde-postgresql-setup} script installs and
+starts the PostgreSQL server from the distribution's packages and creates the
+\c{bde} database owned by the \c{bde} role:
+
+\
+$ bde/bde/etc/private/postgresql/bde-postgresql-setup
+set up PostgreSQL database 'bde' owned by role 'bde'? [y/n]: y
++ sudo dnf install --assumeyes postgresql-server
+...
++ psql: CREATE ROLE bde LOGIN
++ psql: CREATE DATABASE bde OWNER bde TEMPLATE template0 ...
+database 'bde' is ready
+  info: run 'bde --db-name bde --db-host /var/run/postgresql
+  --migrate' as user 'bde' to create its schema
+\
+
+The \c{bde} role authenticates with the \c{peer} method, which is the
+PostgreSQL default for the local UNIX-domain socket: the system user that
+runs \c{bde} has the name of the role and needs no password.
+
+The script also prints the directory of the server's socket, which we pass
+to \c{bde} with \c{--db-host}. The \c{libpq} library that \c{bde} is built
+with looks for the socket in \c{/tmp} unless told otherwise, and the Debian
+server only creates it in \c{/var/run/postgresql}.
+
+The script skips the steps that are already done, so it is safe to run it
+again. It can also print its plan without doing anything (\c{--print-only})
+and use other names (\c{--database} and \c{--role}). See the comments at the
+beginning of the script for details.
+
+\N|On other distributions we install and start the PostgreSQL server with the
+distribution's tools and then execute the following statements as the
+PostgreSQL superuser:
+
+\
+CREATE ROLE bde LOGIN;
+CREATE DATABASE bde OWNER bde TEMPLATE template0 ENCODING 'UTF8';
+\
+
+|
+
+|
+
+\li|\n\b{2. Build and Install}\n
+
+We build \c{bde} in a \c{bpkg} build configuration. You will want to keep
+this configuration around since it is also what we upgrade \c{bde} with (see
+\l{#upgrade Upgrading}). In this guide we use \c{~/bde-build/} as the
+configuration directory:
+
+\
+$ bpkg create -d ~/bde-build cc     \
+  config.cxx=g++                    \
+  config.cc.coptions=-O2            \
+  config.bin.rpath=/opt/bde/lib     \
+  config.install.root=/opt/bde      \
+  config.install.sudo=sudo
+
+$ cd ~/bde-build
+$ bpkg build bde@https://github.com/iw4x-x64-stage/bde.git#main
+$ bpkg install --all --recursive
+\
+
+The \c{config.bin.rpath} value embeds the library directory into the
+executable so that it finds the shared libraries installed next to it, and
+\c{--recursive} installs these libraries along with \c{bde}. Let's make sure
+the result runs:
+
+\
+$ /opt/bde/bin/bde --version
+bde 0.1.0
+libbde 0.1.0
+...
+\
+
+|
+
+\li|\n\b{3. Create System User}\n
+
+\c{bde} runs as an unprivileged system user with the name of its database
+role:
+
+\
+$ sudo useradd --system --user-group --create-home \
+  --home-dir /var/lib/bde --shell /usr/sbin/nologin bde
+\
+
+|
+
+\li|\n\b{4. Create Keys}\n
+
+The authentication server needs a TLS certificate and its private key in the
+PEM format. The certificate names the host that IW4x client connects to and
+is issued by a certificate authority that the players' systems trust. For a
+public deployment we get it from Let's Encrypt, as described in
+\l{#install-certificate Getting Certificate from Let's Encrypt}, which
+installs it in the same locations. For a test deployment we can generate a
+self-signed one:
+
+\
+$ sudo mkdir -p /etc/bde/tls
+$ sudo openssl req -x509 -newkey rsa:2048 -noenc -days 365 \
+  -subj /CN=bde.example.org                                \
+  -keyout /etc/bde/tls/key.pem -out /etc/bde/tls/cert.pem
+\
+
+The authentication server seals the tickets with a 32-byte key and the gateway
+opens them with the same key. If the key comes from a file, then the tickets
+stay valid across restarts and the reconnecting clients skip the
+authentication:
+
+\
+$ sudo sh -c 'head -c 32 /dev/urandom >/etc/bde/ticket.key'
+\
+
+Both keys are secrets readable by \c{root} and the \c{bde} group only:
+
+\
+$ sudo chown root:bde /etc/bde/tls/key.pem /etc/bde/ticket.key
+$ sudo chmod 640 /etc/bde/tls/key.pem /etc/bde/ticket.key
+\
+
+\N|Without \c{--ticket-key} \c{bde} generates a random key on startup and
+every client authenticates again after a restart.|
+
+|
+
+\li|\n\b{5. Write Options File}\n
+
+\c{bde} reads its options from the file that we pass with
+\c{--options-file}. Each option is on its own line, optionally followed by a
+space or an equal sign and the value, and the lines starting with \c{#} are
+comments. Let's create \c{/etc/bde/bde.options} with the following contents:
+
+\
+# The bde options (see bde --help for details).
+#
+--tls-certificate /etc/bde/tls/cert.pem
+--tls-key         /etc/bde/tls/key.pem
+--ticket-key      /etc/bde/ticket.key
+--db-name         bde
+--db-host         /var/run/postgresql
+--publisher-files /opt/bde/share/bde/publisher
+--verbose         2
+\
+
+The publisher files are the files that the title offers to every player.
+IW4x downloads its playlists from them, so without \c{--publisher-files}
+the players have no playlists to choose from. The \c{bde} package installs
+the IW4x playlists into \c{share/bde/publisher/2010/}, and \c{bde} publishes
+them on startup.
+
+The authentication server verifies the platform tokens that IW4x issues. Each
+IW4x installation signs its tokens with its own key and \c{bde} derives the
+user id from that key, so a user id is only accepted together with its key.
+For development we can add \c{--insecure-authentication}, which accepts any
+token and makes anyone who presents the same token the same user.
+
+The clients send their bandwidth test packets to the address they reached the
+gateway at and to the port \c{bde} receives them on. If the server is behind
+NAT, then we specify the public address, as well as the public port if the
+forwarding changes it:
+
+\
+--bandwidth-public-address 203.0.113.7
+--bandwidth-public-port    3075
+\
+
+\N|A client whose packets don't arrive keeps its initial upload rate, which
+is enough to host the largest lobby, and the host migration then picks the
+hosts without the measurement.|
+
+|
+
+\li|\n\b{6. Create Database Schema}\n
+
+\c{bde} creates its database schema when run with \c{--migrate}, which we do
+as the \c{bde} user:
+
+\
+$ sudo -u bde /opt/bde/bin/bde \
+  --options-file /etc/bde/bde.options --migrate -v
+created database bde schema version 1
+\
+
+With \c{--migrate} \c{bde} only needs the database options and exits once
+the schema is current. The same command migrates the schema after an upgrade (see
+\l{#upgrade-schema Migrating Database Schema}).
+
+Now we can check the configuration by running \c{bde} in the foreground.
+Binding to port 443 requires a privilege that only the service gets (see the
+next step), so for this run we let the system choose the ports:
+
+\
+$ sudo -u bde /opt/bde/bin/bde                     \
+  --options-file /etc/bde/bde.options              \
+  --auth-port 0 --lsg-port 0 --bandwidth-port 0
+published 1 publisher file(s)
+listening on 0.0.0.0:41075 and 0.0.0.0:46261, testing bandwidth on
+0.0.0.0:51243
+^Cshutting down
+\
+
+|
+
+\li|\n\b{7. Install systemd Service}\n
+
+The service runs \c{bde} as the \c{bde} user with the capability to bind to
+port 443 and restarts it if it fails. We save the following unit as
+\c{/etc/systemd/system/bde.service}:
+
+\
+[Unit]
+Description=IW4x Demonware emulator
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=exec
+User=bde
+Group=bde
+ExecStart=/opt/bde/bin/bde --options-file /etc/bde/bde.options
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+\
+
+\N|If PostgreSQL runs on the same host, then add
+\c{Requires=postgresql.service} to the \c{[Unit]} section, which stops
+\c{bde} whenever PostgreSQL stops.|
+
+Then we enable and start the service:
+
+\
+$ sudo systemctl daemon-reload
+$ sudo systemctl enable --now bde
+$ systemctl status bde
+\
+
+|
+
+\li|\n\b{8. Open Firewall Ports}\n
+
+Finally, we open the three ports. With \c{firewalld}, the Fedora default:
+
+\
+$ sudo firewall-cmd --permanent --add-port=443/tcp \
+  --add-port=3074/tcp --add-port=3075/udp
+$ sudo firewall-cmd --reload
+\
+
+With \c{ufw}, common on Ubuntu:
+
+\
+$ sudo ufw allow 443/tcp
+$ sudo ufw allow 3074/tcp
+$ sudo ufw allow 3075/udp
+\
+
+||
+
+\h#install-certificate|Getting Certificate from Let's Encrypt|
+
+Let's Encrypt issues free certificates for the DNS names whose control we
+prove, and every player's system trusts them out of the box. IW4x serves
+\c{bde} at \c{bde.iw4x.io}, a name in the \c{iw4x.io} zone, whose DNS is
+hosted by Cloudflare. A deployment under another domain follows the same steps
+with its own name and DNS provider.
+
+We use \c{certbot}, the Let's Encrypt client, which proves control with the
+HTTP challenge: Let's Encrypt fetches a token from port 80 of the host, and
+\c{certbot} serves it there for the duration of the request. The
+certificates are valid for 90 days and \c{certbot} renews them about a month
+before they expire.
+
+\dl|
+
+\li|\b{1. Add DNS Records}\n
+
+In the Cloudflare dashboard we open the \c{iw4x.io} zone and add the
+following records under DNS, Records:
+
+\
+Type  Name  Content                  Proxy status
+A     bde   <host IPv4 address>      DNS only
+AAAA  bde   <host IPv6 address>      DNS only
+\
+
+We add the \c{AAAA} record if the host has an IPv6 address. The records are
+DNS only, so the players connect to the host directly. The gateway and
+bandwidth test ports need the direct connection since the Cloudflare proxy
+carries HTTP only, and the TLS connection ends at \c{bde}, which keeps the
+platform tokens between the players and \c{bde}. The HTTP challenge of the
+next steps also reaches the host directly.
+
+Once the records propagate, the name resolves to the host:
+
+\
+$ dig +short bde.iw4x.io
+203.0.113.7
+\
+
+|
+
+\li|\n\b{2. Install certbot}\n
+
+On Fedora the package comes with a timer that runs the renewal twice a day,
+which we enable:
+
+\
+$ sudo dnf install certbot
+$ sudo systemctl enable --now certbot-renew.timer
+\
+
+On Debian and Ubuntu the package enables its \c{certbot.timer} on
+installation:
+
+\
+$ sudo apt install certbot
+\
+
+|
+
+\li|\n\b{3. Open Port 80}\n
+
+The HTTP challenge reaches the host on port 80, both now and on every
+renewal. With \c{firewalld}:
+
+\
+$ sudo firewall-cmd --permanent --add-port=80/tcp
+$ sudo firewall-cmd --reload
+\
+
+With \c{ufw}:
+
+\
+$ sudo ufw allow 80/tcp
+\
+
+\N|If a web server already listens on port 80, then \c{certbot} can place
+the token into that server's document root (see \c{--webroot} in the
+\c{certbot} documentation).|
+
+\N|If the host cannot open port 80, then \c{certbot} can prove control with
+the DNS challenge, creating a \c{TXT} record through the Cloudflare API
+(see the \c{certbot-dns-cloudflare} plugin). This needs a Cloudflare API
+token with the permission to edit the DNS of the \c{iw4x.io} zone, which is
+then a secret on the host that controls every name in the zone.|
+
+|
+
+\li|\n\b{4. Request Certificate}\n
+
+Now we request the certificate, giving the email address of whoever
+operates the host, where Let's Encrypt sends the expiry warnings:
+
+\
+$ sudo certbot certonly --standalone -d bde.iw4x.io \
+  -m <address> --agree-tos --no-eff-email
+...
+Successfully received certificate.
+...
+\
+
+\c{certbot} keeps the certificate in
+\c{/etc/letsencrypt/live/bde.iw4x.io/}: \c{fullchain.pem} is the
+certificate followed by the intermediate certificate that the clients need
+to verify it, and \c{privkey.pem} is the private key. The directory is
+readable by \c{root} only.
+
+|
+
+\li|\n\b{5. Install Deploy Hook}\n
+
+\c{bde} runs as the \c{bde} user and reads the certificate on startup. So
+after each renewal we copy the certificate into \c{/etc/bde/tls/} and
+restart \c{bde}. \c{certbot} runs the scripts in
+\c{/etc/letsencrypt/renewal-hooks/deploy/} after each renewal, with the
+directory of the renewed certificate in \c{RENEWED_LINEAGE}. We save the
+following script as \c{/etc/letsencrypt/renewal-hooks/deploy/bde}:
+
+\
+#!/bin/sh
+
+# Install the renewed IW4x certificate for bde and restart it.
+#
+set -e
+
+case \"$RENEWED_LINEAGE\" in
+  */bde.iw4x.io) ;;
+  *) exit 0 ;;
+esac
+
+install -m 644 -o root -g bde \
+  \"$RENEWED_LINEAGE/fullchain.pem\" /etc/bde/tls/cert.pem
+install -m 640 -o root -g bde \
+  \"$RENEWED_LINEAGE/privkey.pem\" /etc/bde/tls/key.pem
+
+systemctl try-restart bde
+\
+
+Then we make it executable and run it once for the certificate we just
+received:
+
+\
+$ sudo chmod 755 /etc/letsencrypt/renewal-hooks/deploy/bde
+$ sudo env RENEWED_LINEAGE=/etc/letsencrypt/live/bde.iw4x.io \
+  /etc/letsencrypt/renewal-hooks/deploy/bde
+\
+
+The \c{try-restart} command restarts \c{bde} if it is running, so the hook
+also works before the service is installed.
+
+\N|A restart closes the gateway connections and ends the matchmaking
+sessions. With \c{--ticket-key} the clients reconnect without
+authenticating again. The renewal timer runs at a random time of the day,
+and if you prefer a quiet hour, then you can set its schedule with
+\c{systemctl edit} (see \c{OnCalendar} in \c{systemd.timer(5)}).|
+
+|
+
+\li|\n\b{6. Test Renewal}\n
+
+Finally, we check that the renewal works, which \c{certbot} does against the
+Let's Encrypt staging environment without replacing the certificate:
+
+\
+$ sudo certbot renew --dry-run
+...
+Congratulations, all simulated renewals succeeded:
+  /etc/letsencrypt/live/bde.iw4x.io/fullchain.pem (success)
+\
+
+||
+
+\h1#operation|Operation|
+
+\h#operation-diagnostics|Diagnostics|
+
+\c{bde} writes its diagnostics to \c{stderr} and \c{systemd} sends them to the
+journal, where we can follow them:
+
+\
+$ journalctl -u bde -f
+\
+
+The \c{--verbose} option sets the verbosity from 0 to 3. Level 0 prints the
+errors, and each next level adds a kind of message: warnings and the
+connected users at 1 (the default), informational messages at 2, and trace
+messages at 3. The \c{-q}, \c{-v}, and \c{-V} options are the shortcuts for
+levels 0, 2, and 3.
+
+The servers start each line of their diagnostics with the client's endpoint.
+The most common ones look like this:
+
+\
+192.0.2.10:52144: info: user 1234 connected as 1
+192.0.2.10:52144: warning: task 9 failed: database error: ...
+(service not available)
+\
+
+A failed task means the client received an error reply, which the game often
+treats as fatal. On a storage error, for example, it drops the player to the
+main menu. The warnings that call for our attention are the database errors,
+which are discussed in the next section, and the protocol errors, which mean
+a client sent something \c{bde} doesn't understand.
+
+\h#operation-database|Database|
+
+Every database operation runs in a serializable transaction. An operation that
+fails with a recoverable error, such as a serialization failure or a lost
+connection, is retried after a growing delay, up to \c{--db-retry} times (10
+by default). If the operation still fails, then the task fails with
+\c{service not available} and \c{bde} goes on serving. So while PostgreSQL is
+down or restarting, only the tasks that need the database fail.
+
+\c{bde} opens up to \c{--db-max-connections} connections (5 by default) and
+performs the operations on as many threads. Together with the other clients of
+the server, they have to fit into the server's \c{max_connections} (100 by
+default).
+
+PostgreSQL vacuums and analyzes the tables on its own (autovacuum is enabled
+by default), so the database needs no regular maintenance besides the backups.
+
+\h#operation-backup|Backups|
+
+The \c{bde} role owns the database and so can dump it. We use the custom
+format, which is compressed and which \c{pg_restore} can restore selectively:
+
+\
+$ sudo -u bde pg_dump --format=custom \
+  --file=/var/lib/bde/bde-$(date +%F).dump bde
+\
+
+To make a backup every night, we can add a line to the \c{bde} user's
+\c{crontab} (\c{sudo\ crontab\ -u\ bde\ -e}), escaping the percent sign as
+\c{cron} requires:
+
+\
+0 4 * * * pg_dump -Fc -f /var/lib/bde/bde-$(date +\%F).dump bde
+\
+
+\N|These backups are on the same host as the database, so make sure they are
+also copied to another one.|
+
+To restore a backup, we stop \c{bde}, drop the database, let the setup script
+create an empty one, restore the backup into it, and start \c{bde} again:
+
+\
+$ sudo systemctl stop bde
+$ sudo -u postgres dropdb bde
+$ bde/bde/etc/private/postgresql/bde-postgresql-setup --yes
+$ sudo -u bde pg_restore --dbname=bde \
+  /var/lib/bde/bde-2026-10-08.dump
+$ sudo systemctl start bde
+\
+
+The backup includes the schema version. If an older \c{bde} made it, then
+\c{bde} refuses to start until we migrate the restored schema (see
+\l{#upgrade-schema Migrating Database Schema}).
+
+\h#operation-remote|Remote Database|
+
+The setup script configures a local server. To use a server on another host,
+we give the role a password and allow it to connect over the network:
+
+\
+ALTER ROLE bde PASSWORD '...';
+\
+
+The server's \c{pg_hba.conf} then needs a line like this one, with the
+network of the \c{bde} host:
+
+\
+host  bde  bde  192.0.2.0/24  scram-sha-256
+\
+
+And the options file names the server and the credentials:
+
+\
+--db-host     db.example.org
+--db-port     5432
+--db-user     bde
+--db-password ...
+\
+
+\N|The command line of a process is visible to the other users of the host.
+The password belongs in the options file, which only \c{root} and the
+\c{bde} group can read, or in the PostgreSQL password file (see
+\c{PGPASSFILE} in the PostgreSQL documentation).|
+
+\h1#upgrade|Upgrading|
+
+At this point we assume that \c{bde} is installed as described in
+\l{#install Installation} and that the \c{bpkg} configuration from step 2 is
+in \c{~/bde-build/}.
+
+We first fetch the new version and see what we are upgrading to:
+
+\
+$ cd ~/bde-build
+$ bpkg fetch
+$ bpkg status bde
+!bde configured 0.1.0 available 0.2.0
+\
+
+The upgrade stops the service, so the clients get disconnected and lose their
+matchmaking sessions. If the new version changes the database schema, then it
+also migrates it, and we want a fresh backup before that (see
+\l{#operation-backup Backups}).
+
+We uninstall the old version before installing the new one, so that the
+files the new version no longer has don't remain installed:
+
+\
+$ sudo systemctl stop bde
+$ bpkg uninstall --all --recursive
+$ bpkg build --upgrade --recursive bde
+$ bpkg install --all --recursive
+$ sudo -u bde /opt/bde/bin/bde \
+  --options-file /etc/bde/bde.options --migrate -v
+migrated database bde schema from version 1 to 2
+$ sudo systemctl start bde
+\
+
+Once started, \c{bde} publishes the playlists that the new version installs
+in place of the old ones, and the clients download them when they start.
+
+\N|The \c{--recursive} option makes \c{bpkg} upgrade and install the
+dependencies of \c{bde} as well. See
+\l{https://build2.org/bpkg/doc/bpkg-pkg-build.xhtml \c{bpkg-pkg-build(1)}}
+for details.|
+
+\h#upgrade-schema|Migrating Database Schema|
+
+The database records the version of its schema. Each \c{bde} version uses one
+schema version and on startup refuses a database with any other:
+
+\
+error: database bde schema version 1 instead of 2
+  info: run 'bde --migrate' to create or migrate it
+\
+
+\c{bde} can migrate the schemas from a range of earlier versions to its own.
+With \c{--migrate} it does what the database needs and with \c{-v} it reports
+what it did:
+
+\
+created database bde schema version 2
+migrated database bde schema from version 1 to 2
+database bde schema version 2 is current
+\
+
+The migration runs in a single transaction, so a failed migration leaves the
+database as it was. If several hosts run \c{--migrate} at once, then the
+migrations happen one after another and all but the first find the schema
+current.
+
+\c{bde} fails without changing anything if the schema is outside its range:
+
+\
+error: unable to migrate database bde: database schema version 1
+is too old to migrate
+error: unable to migrate database bde: database schema version 3
+is newer than 2
+\
+
+An old schema is migrated in steps, first with an intermediate \c{bde}
+version that still supports it. The release notes (the \c{NEWS} file) say
+when a version drops the support for a schema. A newer schema means the
+database belongs to a newer \c{bde}. To go back to an earlier \c{bde}, we
+reinstall it and restore the backup made before the migration, which loses
+the changes made since.
+
+\N|All the \c{bde} processes that share a database have to use the same
+schema version. So we stop all of them before the migration and only start
+the upgraded ones after it.|
+
+\h1#develop|Development|
+
+This chapter is for the \c{bde} developers and assumes the development setup
+from the repository's \c{README.md}.
+
+\h#develop-test|Testing with PostgreSQL|
+
+The \c{libbde} tests use the in-memory stores unless we give them a
+PostgreSQL maintenance database (normally \c{postgres}) on a server where our
+user may create databases. The setup script grants this permission to the
+user we name with \c{--test-role}:
+
+\
+$ bde/etc/private/postgresql/bde-postgresql-setup --test-role \"$USER\"
+$ PGHOST=/var/run/postgresql \
+  bdep test config.libbde.test.pgsql=postgres
+\
+
+Each test creates its own database, named \c{bde_test_} followed by a random
+suffix, and drops it once done. The tests connect with the \c{libpq}
+defaults, so the \c{PGHOST} environment variable names the server's socket
+directory (see \l{#install Installation}), and together with \c{PGPORT} it
+can also select another server.
+
+\h#develop-schema|Changing Database Schema|
+
+The persistent classes are in \c{libbde/libbde/model.hxx}. The development
+build (\c{config.libbde.develop=true}) translates this header with the ODB
+compiler and copies the generated code to \c{libbde/libbde/pregenerated/},
+where the consumption build takes it from. So after changing the header we
+build in a development configuration and commit the regenerated code along
+with the header. The \c{model} test fails if the two are out of sync.
+
+The schema versions are defined in the same header:
+
+\
+#define LIBBDE_SCHEMA_VERSION_BASE 1
+#define LIBBDE_SCHEMA_VERSION      1, open
+\
+
+The current version is \i{open} while its changes are unreleased, and the
+changes made in the meantime fold into it. The ODB compiler records the closed
+versions in the changelog, \c{libbde/libbde/model.xml}, and generates the
+migration statements from it. The changelog is both its input and its output,
+so we commit it as well. A schema version goes through the following steps:
+
+\dl|
+
+\li|\b{1. Close Version}\n
+
+Before releasing an \c{bde} version with schema changes, we remove \c{open}
+from \c{LIBBDE_SCHEMA_VERSION}, build, and commit the updated changelog.|
+
+\li|\n\b{2. Open Next Version}\n
+
+After the release, we bump the current version (for example, to
+\c{2,\ open}) for the changes that follow.|
+
+\li|\n\b{3. Raise Base Version}\n
+
+To drop the migration from the oldest versions, we raise
+\c{LIBBDE_SCHEMA_VERSION_BASE}. The deployments with an older schema then
+migrate in steps (see \l{#upgrade-schema Migrating Database Schema}), so the
+release notes have to say so.||
+
+See the Database Schema Evolution chapter of the ODB manual for the changes
+that the migration supports.
+"

@@ -1,5 +1,5 @@
 : 1
-summary: obe project repository
+summary: bde project repository
 
 # We use the testing section of cppget.org, as every IW4x repository does
 # (CC.md 8.6). Packages in testing are queued for stable and have passed

@@ -1,0 +1,12 @@
+// Copyright (c) the IW4x authors (see the AUTHORS file).
+// SPDX-License-Identifier: GPL-3.0-only WITH AdditionRef-IW4x-Exception-1.1
+
+#include <libbde/authenticator.hxx>
+
+namespace bde
+{
+  authenticator::
+  ~authenticator ()
+  {
+  }
+}

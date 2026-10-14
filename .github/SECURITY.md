@@ -8,7 +8,7 @@ tab of this repository and select "Report a vulnerability" (see
 [Privately reporting a security vulnerability](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
 for details).
 
-A useful report says which package (`obe` or `libobe`) and version (a
+A useful report says which package (`bde` or `libbde`) and version (a
 release or a commit) is affected and what an attacker can achieve with the
 vulnerability. Include the steps to reproduce it and, if you have one, a
 proof of concept.

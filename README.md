@@ -1,16 +1,16 @@
-# obe - Demonware online services server for IW4x.
+# bde - Demonware online services server for IW4x.
 
-`obe` serves Demonware online services that IW4x connects to:
+`bde` serves Demonware online services that IW4x connects to:
 authentication, the lobby service gateway, and the services behind it
 (matchmaking, messaging, storage, performance reporting, and the
 bandwidth test).
 
 The repository holds two packages:
 
-* [`obe`](obe/README.md): the server executable.
-* [`libobe`](libobe/README.md): the protocol and service library.
+* [`bde`](bde/README.md): the server executable.
+* [`libbde`](libbde/README.md): the protocol and service library.
 
-Documentation: https://iw4x.io/projects/obe/doc/
+Documentation: https://iw4x.io/projects/bde/doc/
 
 ## Usage
 
@@ -22,8 +22,8 @@ The development setup uses the standard `bdep`-based workflow and needs a
 C++26 compiler (GCC 16 or later) and PostgreSQL. For example:
 
 ```
-git clone https://github.com/iw4x-x64-stage/obe.git
-cd obe
+git clone https://github.com/iw4x-x64-stage/bde.git
+cd bde
 
 bdep init -C @gcc cc config.cxx=g++ config.cc.compiledb=./
 bdep update
@@ -40,7 +40,7 @@ See [CONTRIBUTING](.github/CONTRIBUTING.md).
 
 ## License
 
-obe is licensed under the GNU General Public License, version 3, subject
+bde is licensed under the GNU General Public License, version 3, subject
 to the additional permissions described in version 1.1 of the IW4x
 Linking Exception.
 

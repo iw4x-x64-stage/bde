@@ -1,0 +1,151 @@
+# Copyright (c) the IW4x authors (see the AUTHORS file).
+# SPDX-License-Identifier: GPL-3.0-only WITH AdditionRef-IW4x-Exception-1.1
+
+: help
+:
+$* --help >>~/EOO/
+/.*SYNOPSIS.*/
+/.*/*
+EOO
+
+: version
+:
+$* --version >>~/EOO/
+/bde \d+\.\d+\.\d+.*/
+/libbde \d+\.\d+\.\d+.*/
+/.*/*
+EOO
+
+: pregenerated-current
+: Test that the pregenerated options parser is up to date
+:
+: The development build regenerates it and records the checksum of the
+: options file it is produced from (see ../../bde/buildfile). So this test
+: fails if the options file was changed without a development build.
+:
+{
+  s = $src_root/../bde
+
+  sha256sum --sum-only $s/bde.cli >>>$s/pregenerated/bde/bde.cli.sha256
+}
+
+: options
+: Test the command line errors
+:
+{{
+  : unknown
+  :
+  $* --unknown 2>>EOE != 0
+  error: unknown option '--unknown'
+    info: run 'bde --help' for more information
+  EOE
+
+  : tls
+  :
+  $* 2>>EOE != 0
+  error: TLS certificate and key are required
+    info: specify them with --tls-certificate and --tls-key
+  EOE
+
+  : address
+  :
+  $* --tls-certificate c.pem --tls-key k.pem --auth-address 'not-an-address' \
+     2>>EOE != 0
+  error: invalid authentication address 'not-an-address'
+  EOE
+
+  : bandwidth-address
+  :
+  $* --tls-certificate c.pem --tls-key k.pem \
+     --bandwidth-address 'not-an-address' 2>>EOE != 0
+  error: invalid bandwidth test address 'not-an-address'
+  EOE
+
+  : bandwidth-public-address
+  :
+  $* --tls-certificate c.pem --tls-key k.pem \
+     --bandwidth-public-address '::1' 2>>EOE != 0
+  error: invalid bandwidth test public address '::1'
+    info: specify the IPv4 address the clients can reach
+  EOE
+
+  : publisher-files
+  : Test the publisher files errors
+  :
+  {{
+    o = --tls-certificate c.pem --tls-key k.pem --publisher-files files
+
+    : missing
+    :
+    $* $o 2>>EOE != 0
+    error: unable to read publisher files directory files: No such file or directory
+    EOE
+
+    : title
+    :
+    mkdir -p files/iw4x;
+    $* $o 2>>EOE != 0
+    error: invalid publisher files title directory files/iw4x
+      info: name it after the title id, for example, 2010
+    EOE
+
+    : file
+    :
+    mkdir -p files/2010/dir;
+    $* $o 2>>EOE != 0
+    error: publisher file files/2010/dir is not a regular file
+    EOE
+
+    : name
+    :
+    h = nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn;
+    n = "$h$h"; # 128 characters.
+    mkdir -p files/2010;
+    touch files/2010/$n;
+    $* $o 2>>"EOE" != 0
+    error: publisher file name $n is longer than 127 characters
+    EOE
+
+    : valid
+    : Test that valid publisher files get loaded
+    :
+    : The startup then fails later, loading the certificate.
+    :
+    mkdir -p files/2010;
+    echo 'version 1' >=files/2010/playlists.patch2;
+    $* $o 2>>~/EOE/ != 0
+    /error: unable to load TLS certificate c.pem: .+/
+    EOE
+  }}
+
+  : migrate
+  :
+  $* --migrate 2>>EOE != 0
+  error: no database to migrate
+    info: specify it with --db-name
+  EOE
+
+  : verbose
+  :
+  $* --verbose 4 2>>EOE != 0
+  error: invalid --verbose value 4
+    info: specify a level between 0 and 3
+  EOE
+
+  : db-connections
+  :
+  $* --db-name bde --db-max-connections 0 2>>EOE != 0
+  error: invalid --db-max-connections value 0
+  EOE
+
+  : options-file
+  :
+  cat <<EOI >=opts;
+  # Options file.
+  --unknown
+  EOI
+  $* --options-file opts 2>>EOE != 0
+  error: unknown option '--unknown'
+    info: run 'bde --help' for more information
+  EOE
+}}

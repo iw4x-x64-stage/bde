@@ -1,0 +1,30 @@
+# Copyright (c) the IW4x authors (see the AUTHORS file).
+# SPDX-License-Identifier: GPL-3.0-only WITH AdditionRef-IW4x-Exception-1.1
+
+# The PostgreSQL maintenance database (for example, postgres) to test the
+# PostgreSQL stores with. Each test creates its own database (named
+# bde_test_<pid>) and drops it once done, so the user (normally the user of
+# the process; see the libpq environment variables) must be allowed to
+# create databases. If unspecified, the PostgreSQL stores are not tested.
+#
+# See bde/etc/private/postgresql/ in the repository for setting up a local
+# server.
+#
+config [string, null] config.libbde.test.pgsql ?= [null]
+
+cxx.std = latest
+
+using cxx
+
+hxx{*}: extension = hxx
+ixx{*}: extension = ixx
+txx{*}: extension = txx
+cxx{*}: extension = cxx
+
+# Every exe{} in this subproject is by default a test.
+#
+exe{*}: test = true
+
+# The test target for cross-testing (running tests under Wine, etc).
+#
+test.target = $cxx.target
