@@ -63,7 +63,7 @@ namespace obe
   //
   // The server must be run by a single thread (see service). The
   // diagnostics (failed handshakes and tasks, misbehaving clients) are
-  // printed to stderr.
+  // issued through the diagnostics logger (see diagnostics.hxx).
   //
   // The server, the sealer, the services, and the registry should outlive
   // the connections, which means the io_context should be stopped (and its

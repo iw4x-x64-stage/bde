@@ -5,6 +5,7 @@
 
 #include <quill/Logger.h>
 #include <quill/LogMacros.h>
+#include <quill/bundled/fmt/format.h> // formatter of format_as()
 
 #include <libobe/types.hxx>
 #include <libobe/utility.hxx>
@@ -41,4 +42,12 @@ namespace obe
   //
   LIBOBE_SYMEXPORT void
   set_verbosity (uint16_t);
+
+  // Format the named enumerations as their names in the records. Quill
+  // formats the records with its bundled fmt, which finds this function by
+  // argument-dependent lookup.
+  //
+  template <named_enum T>
+  inline const char*
+  format_as (T v) {return to_string (v);}
 }

@@ -3,9 +3,7 @@
 
 #include <libobe/service-bandwidth.hxx>
 
-#include <print>
 #include <limits>  // numeric_limits
-#include <cstdio>  // stderr
 #include <cstring> // memcpy()
 
 #include <openssl/rand.h>
@@ -18,6 +16,7 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <libobe/openssl.hxx>
+#include <libobe/diagnostics.hxx>
 
 using namespace std;
 
@@ -229,10 +228,10 @@ namespace obe
 
     if (!a || a->is_unspecified ())
     {
-      println (stderr,
-               "warning: no IPv4 address to offer bandwidth test to "
-               "connection {}",
-               id.connection);
+      LOG_WARNING (logger (),
+                   "warning: no IPv4 address to offer bandwidth test to "
+                   "connection {}",
+                   id.connection);
 
       reject (out, lsg_error::bandwidth_test_try_again);
       co_return;

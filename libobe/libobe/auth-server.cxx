@@ -3,8 +3,6 @@
 
 #include <libobe/auth-server.hxx>
 
-#include <print>
-#include <cstdio> // stderr
 
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -16,6 +14,7 @@
 #include <boost/beast/ssl.hpp>
 
 #include <libobe/endpoint.hxx>
+#include <libobe/diagnostics.hxx>
 
 using namespace std;
 
@@ -75,16 +74,16 @@ namespace obe
     }
     catch (const invalid_argument& e)
     {
-      println (stderr, "{}: warning: {}", n, e.what ());
+      LOG_WARNING (logger (), "{}: warning: {}", n, e.what ());
       co_return auth_reply (auth_code::bad_request);
     }
 
     const vector<title_id>& ts (settings_.titles);
     if (!ts.empty () && !ranges::contains (ts, rq->title))
     {
-      println (stderr,
-               "{}: warning: title {} not served",
-               n, to_underlying (rq->title));
+      LOG_WARNING (logger (),
+                   "{}: warning: title {} not served",
+                   n, to_underlying (rq->title));
       co_return auth_reply (auth_code::bad_title);
     }
 
@@ -102,12 +101,16 @@ namespace obe
     }
     catch (const invalid_argument& e)
     {
-      println (stderr, "{}: warning: invalid platform token: {}", n, e.what ());
+      LOG_WARNING (logger (),
+                   "{}: warning: invalid platform token: {}",
+                   n, e.what ());
       co_return auth_reply (auth_code::bad_account);
     }
     catch (const std::exception& e)
     {
-      println (stderr, "{}: error: unable to authenticate: {}", n, e.what ());
+      LOG_ERROR (logger (),
+                 "{}: error: unable to authenticate: {}",
+                 n, e.what ());
       failed = true;
     }
 
@@ -116,7 +119,7 @@ namespace obe
 
     if (!id)
     {
-      println (stderr, "{}: warning: authentication denied", n);
+      LOG_WARNING (logger (), "{}: warning: authentication denied", n);
       co_return auth_reply (auth_code::bad_account);
     }
 
@@ -147,12 +150,12 @@ namespace obe
                                             id->user,
                                             key});
 
-    println (stderr,
-             "{}: info: authenticated user {} ({}) for title {}",
-             n,
-             to_underlying (id->user),
-             id->user_name,
-             to_underlying (rq->title));
+    LOG_NOTICE (logger (),
+                "{}: info: authenticated user {} ({}) for title {}",
+                n,
+                to_underlying (id->user),
+                id->user_name,
+                to_underlying (rq->title));
 
     co_return auth_reply (move (g));
   }
@@ -200,7 +203,7 @@ namespace obe
       //
       if (ec == http::error::header_limit || ec == http::error::body_limit)
       {
-        println (stderr, "{}: warning: request too large", n);
+        LOG_WARNING (logger (), "{}: warning: request too large", n);
 
         http::response<http::string_body> rs (
           ec == http::error::header_limit
@@ -280,13 +283,13 @@ namespace obe
       // Accept can fail for transient reasons (for example, out of file
       // descriptors), so we diagnose and carry on. But not right away: such
       // a failure is normally immediate and would repeat until the condition
-      // clears, so retrying straight away would spin and flood stderr.
+      // clears, so retrying straight away would spin and flood the diagnostics.
       //
       if (ec)
       {
-        println (stderr,
-                 "error: unable to accept connection: {}",
-                 ec.message ());
+        LOG_ERROR (logger (),
+                   "error: unable to accept connection: {}",
+                   ec.message ());
 
         asio::steady_timer t (acceptor_.get_executor (), accept_retry_delay);
         co_await t.async_wait (asio::as_tuple (use_awaitable));
@@ -316,7 +319,7 @@ namespace obe
         }
         catch (const std::exception& x)
         {
-          println (stderr, "error: connection: {}", x.what ());
+          LOG_ERROR (logger (), "error: connection: {}", x.what ());
         }
       };
 

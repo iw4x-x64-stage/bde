@@ -3,9 +3,7 @@
 
 #include <libobe/lsg-server.hxx>
 
-#include <print>
 #include <random>
-#include <cstdio>  // stderr
 #include <variant>
 #include <exception> // rethrow_exception()
 
@@ -21,6 +19,7 @@
 
 #include <libobe/frame.hxx>
 #include <libobe/endpoint.hxx>
+#include <libobe/diagnostics.hxx>
 #include <libobe/bit-parser.hxx>
 #include <libobe/bit-serializer.hxx>
 
@@ -271,7 +270,9 @@ namespace obe
 
       if (!r)
       {
-        println (stderr, "{}: warning: timed out waiting for prelude", name_);
+        LOG_WARNING (logger (),
+                     "{}: warning: timed out waiting for prelude",
+                     name_);
         co_return false;
       }
 
@@ -313,7 +314,7 @@ namespace obe
       {
         if (steady::now () >= last_receive_ + idle)
         {
-          println (stderr, "{}: info: connection idle, closing", name_);
+          LOG_NOTICE (logger (), "{}: info: connection idle, closing", name_);
           co_return nullopt;
         }
 
@@ -415,9 +416,9 @@ namespace obe
 
     if (e)
     {
-      println (stderr,
-               "{}: warning: handshake failed: {} ({})",
-               name_, e->what (), e->code);
+      LOG_WARNING (logger (),
+                   "{}: warning: handshake failed: {} ({})",
+                   name_, e->what (), e->code);
 
       bytes b;
       bit_serializer s (b);
@@ -427,9 +428,9 @@ namespace obe
       co_return false;
     }
 
-    println (stderr,
-             "{}: info: user {} connected as {}",
-             name_, to_underlying (identity_->user), identity_->connection);
+    LOG_NOTICE (logger (),
+                "{}: info: user {} connected as {}",
+                name_, to_underlying (identity_->user), identity_->connection);
 
     bytes b;
     bit_serializer s (b);
@@ -528,9 +529,9 @@ namespace obe
     }
     catch (const task_error& e)
     {
-      println (stderr,
-               "{}: warning: task {} failed: {} ({})",
-               name_, tx, e.what (), e.code);
+      LOG_WARNING (logger (),
+                   "{}: warning: task {} failed: {} ({})",
+                   name_, tx, e.what (), e.code);
 
       if (bit)
         r = error_reply (tx, e.code);
@@ -539,9 +540,9 @@ namespace obe
     }
     catch (const bit_parsing& e)
     {
-      println (stderr,
-               "{}: warning: task {} failed: {}",
-               name_, tx, e.description);
+      LOG_WARNING (logger (),
+                   "{}: warning: task {} failed: {}",
+                   name_, tx, e.description);
 
       r = error_reply (tx, lsg_error::parameter_parse_error);
     }
@@ -550,10 +551,10 @@ namespace obe
     //
     if (!acceptable (r.size ()))
     {
-      println (stderr,
-               "{}: warning: task {} reply of {} bytes exceeds client "
-               "capacity",
-               name_, tx, r.size ());
+      LOG_WARNING (logger (),
+                   "{}: warning: task {} reply of {} bytes exceeds client "
+                   "capacity",
+                   name_, tx, r.size ());
 
       if (bit)
         r = error_reply (tx, lsg_error::result_too_large);
@@ -581,10 +582,10 @@ namespace obe
   {
     if (!acceptable (p.size ()))
     {
-      println (stderr,
-               "{}: warning: push message of {} bytes exceeds client "
-               "capacity",
-               name_, p.size ());
+      LOG_WARNING (logger (),
+                   "{}: warning: push message of {} bytes exceeds client "
+                   "capacity",
+                   name_, p.size ());
       return false;
     }
 
@@ -593,7 +594,9 @@ namespace obe
                                    frame_type::push,
                                    p}))
     {
-      println (stderr, "{}: warning: send queue full, push dropped", name_);
+      LOG_WARNING (logger (),
+                   "{}: warning: send queue full, push dropped",
+                   name_);
       return false;
     }
 
@@ -678,15 +681,17 @@ namespace obe
     }
     catch (const frame_parsing& e)
     {
-      println (stderr, "{}: warning: {}", name_, e.description);
+      LOG_WARNING (logger (), "{}: warning: {}", name_, e.description);
     }
     catch (const invalid_argument& e) // Prelude.
     {
-      println (stderr, "{}: warning: invalid prelude: {}", name_, e.what ());
+      LOG_WARNING (logger (),
+                   "{}: warning: invalid prelude: {}",
+                   name_, e.what ());
     }
     catch (const task_error& e) // Protocol violation outside of a task.
     {
-      println (stderr, "{}: warning: {}", name_, e.what ());
+      LOG_WARNING (logger (), "{}: warning: {}", name_, e.what ());
     }
   }
 
@@ -742,13 +747,13 @@ namespace obe
       // Accept can fail for transient reasons (for example, out of file
       // descriptors), so we diagnose and carry on. But not right away: such
       // a failure is normally immediate and would repeat until the condition
-      // clears, so retrying straight away would spin and flood stderr.
+      // clears, so retrying straight away would spin and flood the diagnostics.
       //
       if (ec)
       {
-        println (stderr,
-                 "error: unable to accept connection: {}",
-                 ec.message ());
+        LOG_ERROR (logger (),
+                   "error: unable to accept connection: {}",
+                   ec.message ());
 
         asio::steady_timer t (acceptor_.get_executor (), accept_retry_delay);
         co_await t.async_wait (asio::as_tuple (use_awaitable));
@@ -780,7 +785,7 @@ namespace obe
         }
         catch (const std::exception& x)
         {
-          println (stderr, "error: connection: {}", x.what ());
+          LOG_ERROR (logger (), "error: connection: {}", x.what ());
         }
       };
 
