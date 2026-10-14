@@ -36,7 +36,7 @@ The `config.cc.compiledb` value makes the build maintain
 
 ## Contributing
 
-See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md).
+See [CONTRIBUTING](.github/CONTRIBUTING.md).
 
 ## License
 
@@ -44,4 +44,5 @@ obe is licensed under the GNU General Public License, version 3, subject
 to the additional permissions described in version 1.1 of the IW4x
 Linking Exception.
 
-See LICENSE.md, LICENSE-EXCEPTION.md, and AUTHORS.
+See [LICENSE.md](LICENSE.md), [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md),
+and [AUTHORS](AUTHORS).
